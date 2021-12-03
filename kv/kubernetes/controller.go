@@ -8,13 +8,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/util/workqueue"
 )
 
-func (c *Client) startController() error {
+func (c *Client) startController(restClient rest.Interface) error {
 	// create the pod watcher
-	configMapWatcher := cache.NewFilteredListWatchFromClient(c.clientset.CoreV1().RESTClient(), "configMaps", c.namespace, func(options *metav1.ListOptions) {
+	configMapWatcher := cache.NewFilteredListWatchFromClient(restClient, "configMaps", c.namespace, func(options *metav1.ListOptions) {
 		options.FieldSelector = "metadata.name=" + c.name
 	})
 

@@ -45,11 +45,8 @@ type Client struct {
 	configMap    *v1.ConfigMap
 }
 
-func realClientGenerator(c *Client) error {
-	var (
-		config *rest.Config
-		err    error
-	)
+func realClientGenerator() (namespace string, clientset kubernetes.Interface, restClient rest.Interface, err error) {
+	var config *rest.Config
 
 	// if environment variable is set use local kubeconfig otherwise fall back to in-cluster client
 	if kubeconfig := os.Getenv("KUBECONFIG"); kubeconfig != "" {
@@ -59,34 +56,40 @@ func realClientGenerator(c *Client) error {
 		)
 		config, err = kubeconfigCfg.ClientConfig()
 		if err != nil {
-			return err
+			return
 		}
-		c.namespace, _, err = kubeconfigCfg.Namespace()
+		namespace, _, err = kubeconfigCfg.Namespace()
 		if err != nil {
-			return err
+			return
 		}
 	} else {
 		config, err = rest.InClusterConfig()
 		if err != nil {
-			return err
+			return
 		}
 		// TODO: detect namespace
 	}
 
 	// creates the clientset
-	clientset, err := kubernetes.NewForConfig(config)
+	clientset, err = kubernetes.NewForConfig(config)
 	if err != nil {
-		return err
+		return
 	}
-	c.clientset = clientset
-	return nil
+	restClient = clientset.CoreV1().RESTClient()
+	return
 }
 
 func NewClient(cfg *Config, cod codec.Codec, logger log.Logger, registerer prometheus.Registerer) (*Client, error) {
 	return newClient(cfg, cod, logger, registerer, realClientGenerator)
 }
 
-func newClient(cfg *Config, cod codec.Codec, logger log.Logger, registerer prometheus.Registerer, clientGenerator func(*Client) error) (*Client, error) {
+func newClient(
+	cfg *Config,
+	cod codec.Codec,
+	logger log.Logger,
+	registerer prometheus.Registerer,
+	clientGenerator func() (string, kubernetes.Interface, rest.Interface, error),
+) (*Client, error) {
 	var err error
 
 	client := &Client{
@@ -103,8 +106,10 @@ func newClient(cfg *Config, cod codec.Codec, logger log.Logger, registerer prome
 		}
 	}
 
-	// creates the clientset
-	if err := clientGenerator(client); err != nil {
+	// creates the clientset & rest client
+	var restClient rest.Interface
+	client.namespace, client.clientset, restClient, err = clientGenerator()
+	if err != nil {
 		return nil, err
 	}
 
@@ -113,7 +118,7 @@ func newClient(cfg *Config, cod codec.Codec, logger log.Logger, registerer prome
 	defer client.configMapMtx.Unlock()
 	client.configMap, err = client.clientset.CoreV1().ConfigMaps(client.namespace).Get(context.Background(), client.name, metav1.GetOptions{})
 	if err == nil {
-		if err := client.startController(); err != nil {
+		if err := client.startController(restClient); err != nil {
 			return nil, err
 		}
 		return client, nil
@@ -135,7 +140,7 @@ func newClient(cfg *Config, cod codec.Codec, logger log.Logger, registerer prome
 	}
 
 	// start controller to watch for changes to the config map
-	if err := client.startController(); err != nil {
+	if err := client.startController(restClient); err != nil {
 		return nil, err
 	}
 

@@ -7,15 +7,15 @@ import (
 
 	"github.com/grafana/dskit/kv/codec"
 
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/rest"
+	fake_rest "k8s.io/client-go/rest/fake"
 )
 
 func NewInMemoryClient(codec codec.Codec, logger log.Logger) (*Client, io.Closer) {
-	fakeClientset := fake.NewSimpleClientset()
-
-	client, err := newClient(&Config{}, codec, logger, nil, func(c *Client) error {
-		c.clientset = fakeClientset
-		return nil
+	client, err := newClient(&Config{}, codec, logger, nil, func() (string, kubernetes.Interface, rest.Interface, error) {
+		return "", fake.NewSimpleClientset(), &fake_rest.RESTClient{}, nil
 	})
 	if err != nil {
 		panic("error generating in memory client: " + err.Error())
